@@ -1,0 +1,493 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /rooms/{roomCode}
+    // Document ID: string room slug, e.g. "FD-8492" (uppercase)
+    // Fields:
+    //   - roomCode: string (required, 3-20 chars, matches {roomCode}, immutable)
+    //   - title: string (required, 1-100 chars)
+    //   - ownerUid: string (required, 1-128 chars, matches request.auth.uid on create, immutable)
+    //   - adminKeyHash: string (optional, 64-char hex SHA-256 hash of organizer admin key, immutable)
+    //   - salt: string (optional, 1-64 chars cryptographic salt, immutable)
+    //   - pinHash: string (required, 64-char hex SHA-256 hash of backup PIN, immutable)
+    //   - digitsCount: int (required, 4, 5, or 6, immutable)
+    //   - participantCount: int (required, >= 0, incremented by 1 during registration)
+    //   - createdAt: int (required, epoch ms timestamp, immutable)
+    //   - expireAt: int (required, epoch ms timestamp > createdAt)
+    //   - isRegistrationLocked: bool (required, toggles participant registration lock)
+    //   - allowRepeatWinners: bool (required, toggles repeat winners)
+    //   - isSpinning: bool (required, triggers real-time reel spin animation)
+    //   - spinStartTime: int or null (epoch ms timestamp anchoring reel animation)
+    //   - currentWinningCode: string (required, 0-10 chars winning ticket code)
+    //   - currentWinnerName: string (required, 0-80 chars winning attendee name)
+    //   - showCodesOnStage: bool (optional, toggles displaying participant numbers on stage)
+    //   - lastAction: map (optional, dynamic island telemetry {type: string, label: string, timestamp: int})
+    //   - lastUpdated: int (required, epoch ms timestamp)
+    //
+    // Subcollection: /rooms/{roomCode}/_secrets/auth
+    // Document ID: "auth"
+    // Fields:
+    //   - pin: string (required, 4-20 chars, plaintext organizer PIN for internal rule checks)
+    //   - adminKey: string (required, 1-64 chars, UUID admin key)
+    //   - createdAt: int (required, epoch ms timestamp)
+    //
+    // Subcollection: /rooms/{roomCode}/hosts/{hostUid}
+    // Document ID: host's request.auth.uid
+    // Fields:
+    //   - uid: string (required, matches {hostUid})
+    //   - claimedAt: int (required, epoch ms timestamp)
+    //   - method: string (required, 'creator', 'adminKey', or 'pin')
+    //   - pin: string (optional, 4-20 chars)
+    //   - adminKey: string (optional, 1-64 chars)
+    //
+    // Subcollection: /rooms/{roomCode}/participants/{participantId}
+    // Document ID: string (UUID, 1-64 chars) matching request.resource.data.id
+    // Fields:
+    //   - id: string (required, matches {participantId}, 1-64 chars, immutable)
+    //   - roomCode: string (required, matches {roomCode}, immutable)
+    //   - name: string (required, 1-80 chars, immutable)
+    //   - email: string (optional, 3-120 chars, valid email format, immutable, for legacy rooms)
+    //   - code: string (required, 4-6 digits string, matches room digitsCount, immutable)
+    //   - recoveryHash: string (required, 64-char hex SHA-256 hash of recovery password, immutable)
+    //   - uid: string (required, matches request.auth.uid on create, 1-128 chars, immutable)
+    //   - createdAt: int (required, epoch ms timestamp > 0, immutable)
+    //   - hasWon: bool (required, false on create, updatable only by room host)
+    //
+    // Subcollection: /rooms/{roomCode}/recovery/{recoveryHash}
+    // Document ID: 64-char hex SHA-256 hash of 8-character recovery password
+    // Fields:
+    //   - participantId: string (required, 1-64 chars, matching participant document, immutable)
+    //   - code: string (required, 4-6 digits string matching room digitsCount, immutable)
+    //   - name: string (required, 1-80 chars, immutable)
+    //   - createdAt: int (required, epoch ms timestamp > 0, immutable)
+    //
+    // Subcollection: /rooms/{roomCode}/tickets/{ticketCode}
+    // Document ID: ticket number string, e.g. "4821" (4 to 6 digits matching digitsCount)
+    // Fields:
+    //   - participantId: string (required, 1-64 chars, matching participant id, immutable)
+    //   - reservedAt: int (required, epoch ms timestamp > 0, immutable)
+    //
+    // ===============================================================
+
+    // Check if the user is authenticated (via Anonymous Auth or custom/registered token)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Email format validation (for optional legacy participant email compatibility)
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Check if room document exists
+    function roomExists(roomCode) {
+      return exists(/databases/$(database)/documents/rooms/$(roomCode));
+    }
+
+    // Safely retrieve existing room data
+    function getRoomData(roomCode) {
+      return get(/databases/$(database)/documents/rooms/$(roomCode)).data;
+    }
+
+    // Check if caller is an authorized host (room creator or claimed host device)
+    function isRoomHost(roomCode) {
+      return isAuthenticated() &&
+        roomExists(roomCode) &&
+        (
+          request.auth.uid == getRoomData(roomCode).ownerUid ||
+          exists(/databases/$(database)/documents/rooms/$(roomCode)/hosts/$(request.auth.uid))
+        );
+    }
+
+    // Alias for host authority across subcollections (participants, tickets, recovery)
+    function isRoomOwner(roomCode) {
+      return isRoomHost(roomCode);
+    }
+
+    // Domain validator for Room document schema and invariants
+    function isValidRoom(data, roomCode) {
+      let requiredFields = [
+        'roomCode', 'title', 'ownerUid', 'pinHash', 'digitsCount',
+        'participantCount', 'createdAt', 'expireAt', 'isRegistrationLocked',
+        'allowRepeatWinners', 'isSpinning', 'spinStartTime',
+        'currentWinningCode', 'currentWinnerName', 'lastUpdated'
+      ];
+      let allowedFields = [
+        'roomCode', 'title', 'ownerUid', 'adminKeyHash', 'salt', 'pinHash',
+        'digitsCount', 'participantCount', 'createdAt', 'lastHostActionAt', 'expireAt',
+        'isRegistrationLocked', 'allowRepeatWinners', 'isSpinning',
+        'spinStartTime', 'currentWinningCode', 'currentWinnerName', 'lastUpdated',
+        'showCodesOnStage', 'isOneTicketPerDevice', 'hasClaimTimer', 'claimTimerSeconds', 'claimedWinnerCode', 'lastAction'
+      ];
+      return data.keys().hasAll(requiredFields) &&
+        data.keys().hasOnly(allowedFields) &&
+        data.roomCode == roomCode &&
+        data.roomCode is string &&
+        data.roomCode.size() >= 3 &&
+        data.roomCode.size() <= 20 &&
+        data.title is string &&
+        data.title.size() >= 1 &&
+        data.title.size() <= 100 &&
+        data.ownerUid is string &&
+        data.ownerUid.size() >= 1 &&
+        data.ownerUid.size() <= 128 &&
+        (!('adminKeyHash' in data) || (data.adminKeyHash is string && data.adminKeyHash.size() == 64)) &&
+        (!('salt' in data) || (data.salt is string && data.salt.size() >= 1 && data.salt.size() <= 64)) &&
+        data.pinHash is string &&
+        data.pinHash.size() == 64 &&
+        data.digitsCount in [4, 5, 6] &&
+        data.participantCount is int &&
+        data.participantCount >= 0 &&
+        data.createdAt is int &&
+        data.createdAt > 0 &&
+        (!('lastHostActionAt' in data) || (data.lastHostActionAt is int && data.lastHostActionAt > 0)) &&
+        data.expireAt is int &&
+        data.expireAt > data.createdAt &&
+        data.expireAt <= (request.time.toMillis() + (8 * 86400000)) &&
+        data.isRegistrationLocked is bool &&
+        data.allowRepeatWinners is bool &&
+        data.isSpinning is bool &&
+        (data.spinStartTime == null || (data.spinStartTime is int && data.spinStartTime > 0)) &&
+        data.currentWinningCode is string &&
+        data.currentWinningCode.size() <= 10 &&
+        data.currentWinnerName is string &&
+        data.currentWinnerName.size() <= 80 &&
+        (!('showCodesOnStage' in data) || data.showCodesOnStage is bool) &&
+        (!('isOneTicketPerDevice' in data) || data.isOneTicketPerDevice is bool) &&
+        (!('hasClaimTimer' in data) || data.hasClaimTimer is bool) &&
+        (!('claimTimerSeconds' in data) || (data.claimTimerSeconds is int && data.claimTimerSeconds >= 10 && data.claimTimerSeconds <= 180)) &&
+        (!('claimedWinnerCode' in data) || data.claimedWinnerCode == null || (data.claimedWinnerCode is string && data.claimedWinnerCode.size() <= 10)) &&
+        (!('lastAction' in data) || (
+          data.lastAction is map &&
+          data.lastAction.keys().hasAll(['type', 'label', 'timestamp']) &&
+          data.lastAction.keys().hasOnly(['type', 'label', 'timestamp']) &&
+          data.lastAction.type is string &&
+          data.lastAction.type.size() >= 1 &&
+          data.lastAction.type.size() <= 32 &&
+          data.lastAction.label is string &&
+          data.lastAction.label.size() <= 100 &&
+          data.lastAction.timestamp is int &&
+          data.lastAction.timestamp > 0
+        )) &&
+        data.lastUpdated is int &&
+        data.lastUpdated > 0;
+    }
+
+    // Validate new room creation state
+    function isValidNewRoom(data, roomCode) {
+      return isValidRoom(data, roomCode) &&
+        data.ownerUid == request.auth.uid &&
+        data.participantCount == 0 &&
+        data.isSpinning == false &&
+        data.spinStartTime == null &&
+        data.currentWinningCode == '' &&
+        data.currentWinnerName == '';
+    }
+
+    // Validate room updates executed by authorized hosts (creator or host devices)
+    function isHostRoomUpdate(roomCode) {
+      return isAuthenticated() &&
+        isRoomHost(roomCode) &&
+        isValidRoom(request.resource.data, roomCode) &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.roomCode == resource.data.roomCode &&
+        request.resource.data.digitsCount == resource.data.digitsCount &&
+        request.resource.data.pinHash == resource.data.pinHash &&
+        (!('adminKeyHash' in resource.data) || request.resource.data.adminKeyHash == resource.data.adminKeyHash) &&
+        (!('salt' in resource.data) || request.resource.data.salt == resource.data.salt);
+    }
+
+    // Validate atomic room counter updates executed by attendees during registration
+    function isParticipantJoiningUpdate(roomCode) {
+      return isAuthenticated() &&
+        resource.data.isRegistrationLocked == false &&
+        isValidRoom(request.resource.data, roomCode) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participantCount', 'lastUpdated']) &&
+        request.resource.data.participantCount == resource.data.participantCount + 1 &&
+        request.resource.data.lastUpdated is int &&
+        request.resource.data.lastUpdated > 0;
+    }
+
+    // Validate winner claim update on room document (when attendee taps claim on mobile)
+    function isWinnerClaimRoomUpdate(roomCode) {
+      return isAuthenticated() &&
+        resource.data.isSpinning == false &&
+        resource.data.currentWinningCode != '' &&
+        isValidRoom(request.resource.data, roomCode) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedWinnerCode', 'lastAction', 'lastUpdated']) &&
+        request.resource.data.claimedWinnerCode == resource.data.currentWinningCode &&
+        (!('lastAction' in request.resource.data) || (
+          request.resource.data.lastAction is map &&
+          request.resource.data.lastAction.type == 'PRIZE_CLAIMED' &&
+          request.resource.data.lastAction.timestamp is int
+        )) &&
+        request.resource.data.lastUpdated is int &&
+        request.resource.data.lastUpdated > 0;
+    }
+
+    // Domain validator for internal room auth secret
+    function isValidAuthSecret(data) {
+      let requiredFields = ['pin', 'adminKey', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
+        data.keys().hasOnly(requiredFields) &&
+        data.pin is string &&
+        data.pin.size() >= 4 &&
+        data.pin.size() <= 20 &&
+        data.adminKey is string &&
+        data.adminKey.size() >= 1 &&
+        data.adminKey.size() <= 64 &&
+        data.createdAt is int &&
+        data.createdAt > 0;
+    }
+
+    // Domain validator for Host document schema and invariants
+    function isValidHost(data, hostUid) {
+      let requiredFields = ['uid', 'claimedAt', 'method'];
+      let allowedFields = ['uid', 'claimedAt', 'method', 'pin', 'adminKey'];
+      return data.keys().hasAll(requiredFields) &&
+        data.keys().hasOnly(allowedFields) &&
+        data.uid == hostUid &&
+        data.uid is string &&
+        data.uid.size() >= 1 &&
+        data.uid.size() <= 128 &&
+        data.claimedAt is int &&
+        data.claimedAt > 0 &&
+        data.method in ['creator', 'adminKey', 'pin'] &&
+        (!('pin' in data) || (data.pin is string && data.pin.size() >= 4 && data.pin.size() <= 20)) &&
+        (!('adminKey' in data) || (data.adminKey is string && data.adminKey.size() >= 1 && data.adminKey.size() <= 64));
+    }
+
+    // Domain validator for Participant document schema and invariants (Zero-PII model)
+    function isValidParticipant(data, participantId, roomCode) {
+      let requiredFields = ['id', 'roomCode', 'name', 'code', 'recoveryHash', 'uid', 'createdAt', 'hasWon'];
+      let allowedFields = ['id', 'roomCode', 'name', 'code', 'recoveryHash', 'uid', 'createdAt', 'hasWon', 'email', 'hasClaimed', 'claimedAt'];
+      return data.keys().hasAll(requiredFields) &&
+        data.keys().hasOnly(allowedFields) &&
+        data.id == participantId &&
+        data.id is string &&
+        data.id.size() >= 1 &&
+        data.id.size() <= 64 &&
+        data.roomCode == roomCode &&
+        data.roomCode is string &&
+        data.roomCode.size() >= 3 &&
+        data.roomCode.size() <= 20 &&
+        data.name is string &&
+        data.name.size() >= 1 &&
+        data.name.size() <= 80 &&
+        (!('email' in data) || (data.email is string && data.email.size() >= 3 && data.email.size() <= 120 && isValidEmail(data.email))) &&
+        (!('hasClaimed' in data) || data.hasClaimed is bool) &&
+        (!('claimedAt' in data) || data.claimedAt == null || (data.claimedAt is int && data.claimedAt > 0)) &&
+        data.code is string &&
+        data.code.size() >= 4 &&
+        data.code.size() <= 6 &&
+        data.code.matches('^[0-9]+$') &&
+        data.recoveryHash is string &&
+        data.recoveryHash.size() == 64 &&
+        data.recoveryHash.matches('^[a-f0-9]{64}$') &&
+        data.uid is string &&
+        data.uid.size() >= 1 &&
+        data.uid.size() <= 128 &&
+        (data.uid == request.auth.uid || isRoomOwner(roomCode)) &&
+        data.createdAt is int &&
+        data.createdAt > 0 &&
+        data.hasWon is bool;
+    }
+
+    // Domain validator for Recovery Record document schema and invariants
+    function isValidRecoveryRecord(data) {
+      let requiredFields = ['participantId', 'code', 'name', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
+        data.keys().hasOnly(requiredFields) &&
+        data.participantId is string &&
+        data.participantId.size() >= 1 &&
+        data.participantId.size() <= 64 &&
+        data.code is string &&
+        data.code.size() >= 4 &&
+        data.code.size() <= 6 &&
+        data.code.matches('^[0-9]+$') &&
+        data.name is string &&
+        data.name.size() >= 1 &&
+        data.name.size() <= 80 &&
+        data.createdAt is int &&
+        data.createdAt > 0;
+    }
+
+    // Domain validator for Ticket reservation schema
+    function isValidTicket(data) {
+      let requiredFields = ['participantId', 'reservedAt'];
+      return data.keys().hasAll(requiredFields) &&
+        data.keys().hasOnly(requiredFields) &&
+        data.participantId is string &&
+        data.participantId.size() >= 1 &&
+        data.participantId.size() <= 64 &&
+        data.reservedAt is int &&
+        data.reservedAt > 0;
+    }
+
+    // Rooms collection
+    match /rooms/{roomCode} {
+      // Spectator view, stage projector, and attendees require read for real-time slot sync.
+      // Availability check & Privacy Shield: non-existent rooms are readable to check availability, and expired rooms (past 7 days of inactivity) are blocked from public read until deletion.
+      allow read: if resource == null || (resource.data.expireAt > request.time.toMillis()) || isRoomHost(roomCode);
+
+      // Host room creation
+      allow create: if isAuthenticated() && isValidNewRoom(request.resource.data, roomCode);
+
+      // Updates: verified host updating raffle state, attendee joining, or winner claiming prize
+      allow update: if isHostRoomUpdate(roomCode) || isParticipantJoiningUpdate(roomCode) || isWinnerClaimRoomUpdate(roomCode);
+
+      // Deletion allowed for original room owner or authorized hosts
+      allow delete: if isAuthenticated() && (
+        (resource != null && request.auth.uid == resource.data.ownerUid) || 
+        exists(/databases/$(database)/documents/rooms/$(roomCode)/hosts/$(request.auth.uid))
+      );
+
+      // Internal secrets subcollection: NEVER readable by any client, created strictly by room creator
+      match /_secrets/auth {
+        allow read: if false;
+        allow create: if isAuthenticated() &&
+                         roomExists(roomCode) &&
+                         request.auth.uid == getRoomData(roomCode).ownerUid &&
+                         isValidAuthSecret(request.resource.data);
+        allow update: if false;
+        allow delete: if isAuthenticated() && (
+          (roomExists(roomCode) && request.auth.uid == getRoomData(roomCode).ownerUid) ||
+          exists(/databases/$(database)/documents/rooms/$(roomCode)/hosts/$(request.auth.uid))
+        );
+      }
+
+      // Authorized host devices subcollection: allows verified hosts to control room across devices
+      match /hosts/{hostUid} {
+        allow read: if isAuthenticated();
+
+        allow create, update: if isAuthenticated() &&
+          roomExists(roomCode) &&
+          request.auth.uid == hostUid &&
+          isValidHost(request.resource.data, hostUid) &&
+          (
+            request.auth.uid == getRoomData(roomCode).ownerUid ||
+            (('pin' in request.resource.data) && request.resource.data.pin != null &&
+             exists(/databases/$(database)/documents/rooms/$(roomCode)/_secrets/auth) &&
+             request.resource.data.pin == get(/databases/$(database)/documents/rooms/$(roomCode)/_secrets/auth).data.pin) ||
+            (('adminKey' in request.resource.data) && request.resource.data.adminKey != null &&
+             exists(/databases/$(database)/documents/rooms/$(roomCode)/_secrets/auth) &&
+             request.resource.data.adminKey == get(/databases/$(database)/documents/rooms/$(roomCode)/_secrets/auth).data.adminKey)
+          );
+
+        allow delete: if isAuthenticated() && (
+          request.auth.uid == hostUid ||
+          (roomExists(roomCode) && request.auth.uid == getRoomData(roomCode).ownerUid) ||
+          exists(/databases/$(database)/documents/rooms/$(roomCode)/hosts/$(request.auth.uid))
+        );
+      }
+
+      // Scoped participants subcollection (Zero-PII model)
+      match /participants/{participantId} {
+        // Attendees, stage displays, and host read participants (shielded when room has expired)
+        allow read: if resource == null || (roomExists(roomCode) && getRoomData(roomCode).expireAt > request.time.toMillis()) || isRoomHost(roomCode);
+
+        // Attendee registration
+        allow create: if isAuthenticated() &&
+                         roomExists(roomCode) &&
+                         getRoomData(roomCode).isRegistrationLocked != true &&
+                         isValidParticipant(request.resource.data, participantId, roomCode) &&
+                         request.resource.data.uid == request.auth.uid &&
+                         request.resource.data.hasWon == false &&
+                         request.resource.data.code.size() == getRoomData(roomCode).digitsCount &&
+                         (
+                           !('isOneTicketPerDevice' in getRoomData(roomCode)) ||
+                           getRoomData(roomCode).isOneTicketPerDevice != true ||
+                           participantId == request.auth.uid
+                         );
+
+        // Host updates winner status or resets draws, OR winner claims prize from their device
+        allow update: if (
+          // Path A: Host updates winner status, claim status, or resets draws
+          (
+            isRoomOwner(roomCode) &&
+            isValidParticipant(request.resource.data, participantId, roomCode) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hasWon', 'hasClaimed', 'claimedAt']) &&
+            request.resource.data.id == resource.data.id &&
+            request.resource.data.roomCode == resource.data.roomCode &&
+            request.resource.data.name == resource.data.name &&
+            request.resource.data.code == resource.data.code &&
+            request.resource.data.recoveryHash == resource.data.recoveryHash &&
+            request.resource.data.uid == resource.data.uid &&
+            request.resource.data.createdAt == resource.data.createdAt &&
+            (!('email' in resource.data) || request.resource.data.email == resource.data.email)
+          ) ||
+          // Path B: Verified winner claims prize from their mobile device
+          (
+            isAuthenticated() &&
+            request.auth.uid == resource.data.uid &&
+            resource.data.hasWon == true &&
+            isValidParticipant(request.resource.data, participantId, roomCode) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hasClaimed', 'claimedAt']) &&
+            request.resource.data.hasClaimed == true &&
+            request.resource.data.claimedAt is int &&
+            request.resource.data.id == resource.data.id &&
+            request.resource.data.roomCode == resource.data.roomCode &&
+            request.resource.data.name == resource.data.name &&
+            request.resource.data.code == resource.data.code &&
+            request.resource.data.recoveryHash == resource.data.recoveryHash &&
+            request.resource.data.uid == resource.data.uid &&
+            request.resource.data.createdAt == resource.data.createdAt &&
+            (!('email' in resource.data) || request.resource.data.email == resource.data.email)
+          )
+        );
+
+        // Host removes participant
+        allow delete: if isRoomOwner(roomCode);
+      }
+
+      // Scoped recovery subcollection: stores private recovery metadata keyed by SHA-256 of 8-char password
+      match /recovery/{recoveryHash} {
+        // Attendees retrieve their own ticket using the exact 64-char recovery hash O(1)
+        allow get: if isAuthenticated();
+
+        // Host inspection and cascade-purge operations can list recovery records
+        allow list: if isRoomHost(roomCode);
+
+        // Attendee creates recovery mapping during registration
+        allow create: if isAuthenticated() &&
+                         roomExists(roomCode) &&
+                         getRoomData(roomCode).isRegistrationLocked != true &&
+                         recoveryHash.matches('^[a-f0-9]{64}$') &&
+                         isValidRecoveryRecord(request.resource.data);
+
+        // Recovery records cannot be modified once created
+        allow update: if false;
+
+        // Host cascade-purge removes recovery records
+        allow delete: if isRoomHost(roomCode);
+      }
+
+      // Ticket reservation subcollection for atomic collision-free allocation
+      match /tickets/{ticketCode} {
+        // Public read needed to verify unclaimed ticket candidate numbers before allocation
+        allow read: if true;
+
+        // Attendee ticket reservation during registration
+        allow create: if isAuthenticated() &&
+                         roomExists(roomCode) &&
+                         getRoomData(roomCode).isRegistrationLocked != true &&
+                         isValidTicket(request.resource.data) &&
+                         ticketCode.matches('^[0-9]{4,6}$') &&
+                         ticketCode.size() == getRoomData(roomCode).digitsCount;
+
+        // Tickets cannot be modified once reserved
+        allow update: if false;
+
+        // Host releases or cleans up tickets
+        allow delete: if isRoomOwner(roomCode);
+      }
+    }
+  }
+}

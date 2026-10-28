@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    <title>FairDraw - Real-Time Lucky Draws & Giveaways</title>
+    <meta name="description" content="Free, real-time lucky draw for live events and streams. Attendees join instantly via QR code on their phone with zero sign-up or passwords. Try it now." />
+    <meta name="author" content="Đào Công Thành" />
+    <link rel="canonical" href="https://fairdraw.daocongthanh.com/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    
+    <!-- Open Graph / Meta -->
+    <meta property="og:title" content="FairDraw - Real-Time Lucky Draws & Giveaways" />
+    <meta property="og:description" content="Instant, frictionless live lucky draws for tournaments, meetups, and town halls. No signup required." />
+    <meta property="og:url" content="https://fairdraw.daocongthanh.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://fairdraw.daocongthanh.com/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="FairDraw - Real-Time Lucky Draws & Giveaways" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="FairDraw - Real-Time Lucky Draws & Giveaways" />
+    <meta name="twitter:description" content="Instant, frictionless live lucky draws for tournaments, meetups, and town halls. No signup required." />
+    <meta name="twitter:image" content="https://fairdraw.daocongthanh.com/og-image.png" />
+    <meta name="theme-color" content="#0B0F19" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Google Sans Typography Foundation -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700;800&family=Google+Sans+Text:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+    <!-- Schema.org Structured Data (WebApplication, FAQPage, HowTo & Creator) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebApplication",
+          "@id": "https://fairdraw.daocongthanh.com/#webapp",
+          "name": "FairDraw",
+          "url": "https://fairdraw.daocongthanh.com/",
+          "description": "Instant, frictionless real-time lucky draws, raffles, and giveaways for live events, meetups, and tournaments. Join with a short room code or QR code.",
+          "applicationCategory": "UtilityApplication",
+          "operatingSystem": "All",
+          "browserRequirements": "Requires JavaScript. Requires HTML5.",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "author": {
+            "@type": "Person",
+            "name": "Đào Công Thành",
+            "url": "https://daocongthanh.com/"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://fairdraw.daocongthanh.com/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "Is FairDraw completely free to use?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, 100% free with no hidden fees, paywalls, or limits on participant counts. A single brief 5-second ad shown once to attendees upon registration keeps server infrastructure fully funded. The Stage screen and Host remote controller remain 100% ad-free forever."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does the dual-surface remote control work?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "When creating a room, open the Stage view on your projector laptop. Then scan the Host Admin QR code with your phone. Your phone becomes a secret pocket remote control with lock/unlock, spin, reset, and repeat-winner toggles, completely detached from the projector screen."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Do attendees need to register or create accounts?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Never. Attendees simply scan the room QR code or visit the room link, type their display name, and get their Digital Lucky Pass. An 8-character recovery password allows them to restore or switch tickets anytime without passwords or emails."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What is the 45-second Live Claim Window?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "When a winning ticket is selected, the Stage screen starts an exciting 45-second ticking countdown. The winner taps 'Claim My Prize' directly on their smartphone pass, confirming their physical presence and protecting their win from accidental forfeiture."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does FairDraw handle privacy and GDPR?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "FairDraw collects zero PII (Personally Identifiable Information) - no emails, phone numbers, or passwords. All rooms and attendee subcollections are strictly ephemeral and automatically self-destruct after 7 days via Firestore TTL rules."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I use a presentation clicker on stage?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes! The Stage screen natively listens for hardware presenter clicker signals (Spacebar / Enter). You can walk around the auditorium with a wireless slide clicker and trigger spins hands-free."
+              }
+            }
+          ]
+        },
+        {
+          "@type": "HowTo",
+          "@id": "https://fairdraw.daocongthanh.com/#howto",
+          "name": "How to Run a Live Event Lucky Draw with FairDraw",
+          "description": "Host a real-time, zero-friction lucky draw or raffle for your audience in 3 simple steps.",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "name": "Host Creates Room",
+              "text": "Enter event name and 4-digit secret PIN in 5 seconds. Connect the Stage screen to your projector or TV."
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "name": "Audience Scans QR",
+              "text": "Guests scan the big screen QR code on their phone, type their name, and instantly receive their Digital Lucky Pass."
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "name": "Spin & Claim Live",
+              "text": "Host taps spin from their pocket remote. Mechanical slot reels spin live on the projector, followed by a live 45s winner claim window."
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-amber-100 selection:text-amber-900 overflow-x-hidden min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

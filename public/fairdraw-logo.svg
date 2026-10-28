@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 48" fill="none">
+  <rect width="40" height="40" y="4" rx="10" fill="#0F172A"/>
+  <rect x="1" y="5" width="38" height="38" rx="9" stroke="#F59E0B" stroke-opacity="0.4" stroke-width="2"/>
+  <path d="M12 17H28M12 24H23M12 31H18" stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="28" cy="29" r="4.5" fill="#EF4444"/>
+  <text x="52" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="900" fill="#0F172A" letter-spacing="-0.5">Fair<tspan fill="#F59E0B">Draw</tspan></text>
+</svg>
