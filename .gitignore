@@ -36,3 +36,12 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Local AI Agent Knowledge Base Files (Local agent context, not pushed to public GitHub)
+AI-AGENT-GUIDE.md
+UI-UX-DESIGN-SYSTEM.md
+ARCHITECTURE-DEEP-DIVE.md
+DEBUGGING-AND-TROUBLESHOOTING.md
+DEVELOPER-RECIPES.md
+*.local.md
+
