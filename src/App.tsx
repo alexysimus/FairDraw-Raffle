@@ -43,6 +43,7 @@ import { TicketLoungeModal } from './components/TicketLoungeModal';
 import { hasSeenSessionAd } from './hooks/useTicketAd';
 import { trackEvent, trackPageView } from './lib/analytics';
 import { shareWinnerCard } from './lib/shareCard';
+import { formatNumber, formatDate } from './lib/formatters';
 
 const SeoLandingSection = React.lazy(() => import('./components/SeoLandingSection'));
 
@@ -2481,7 +2482,7 @@ const RaffleBoard = ({
         </h2>
         <div className="flex items-center justify-center gap-2.5 flex-wrap">
           <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-            LIVE STAGE • {attendeeTotal.toLocaleString()} ATTENDEES
+            LIVE STAGE • {formatNumber(attendeeTotal)} ATTENDEES
           </span>
           <button 
             onClick={onOpenQr}
@@ -2529,7 +2530,7 @@ const RaffleBoard = ({
       <div className="backdrop-blur-xl bg-white/[0.04] border border-white/10 rounded-3xl p-4 sm:p-6 shadow-2xl">
         <div className="flex justify-between items-center mb-4 sm:mb-5 flex-wrap gap-2">
           <h3 className="font-bold text-sm sm:text-base text-slate-100 flex items-center gap-2">
-            <User size={17} className="text-amber-400" /> ENTRANTS POOL ({participants.length})
+            <User size={17} className="text-amber-400" /> ENTRANTS POOL ({formatNumber(participants.length)})
           </h3>
           
           <div className="flex items-center gap-2">
@@ -2887,12 +2888,12 @@ const HostRemoteView = ({
 
   const handleCopyWinnersRecap = async () => {
     if (wonParticipants.length === 0) return;
-    const dateStr = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    const dateStr = formatDate(Date.now());
     const attendeesCount = room.participantCount ?? participants.length;
     
     let recapText = `🎲 ${room.title} — Official Lucky Draw Results\n`;
-    recapText += `Room: #${room.roomCode} | Entrants: ${attendeesCount} | Date: ${dateStr}\n\n`;
-    recapText += `🏆 Declared Winners (${wonParticipants.length}):\n`;
+    recapText += `Room: #${room.roomCode} | Entrants: ${formatNumber(attendeesCount)} | Date: ${dateStr}\n\n`;
+    recapText += `🏆 Declared Winners (${formatNumber(wonParticipants.length)}):\n`;
     
     wonParticipants.forEach((p: ParticipantData, idx: number) => {
       const isClaimed = Boolean(p.hasClaimed || room.claimedWinnerCode === p.code);
@@ -2951,13 +2952,13 @@ const HostRemoteView = ({
             <div>
               <span className="text-slate-400 block text-[10px] uppercase font-bold">Total Entrants</span>
               <span className="font-mono font-black text-amber-400 text-base sm:text-lg">
-                {attendeeTotal.toLocaleString()}
+                {formatNumber(attendeeTotal)}
               </span>
             </div>
             <div>
               <span className="text-slate-400 block text-[10px] uppercase font-bold">Winners Declared</span>
               <span className="font-mono font-black text-emerald-400 text-base sm:text-lg">
-                {wonParticipants.length}
+                {formatNumber(wonParticipants.length)}
               </span>
             </div>
           </div>
@@ -3285,7 +3286,7 @@ const HostRemoteView = ({
         <div className="bg-slate-900/90 border border-white/10 rounded-3xl p-4 sm:p-5 text-white">
           <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
             <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2">
-              <Trophy size={15} /> Winners Roll ({wonParticipants.length})
+              <Trophy size={15} /> Winners Roll ({formatNumber(wonParticipants.length)})
             </h3>
             <button
               type="button"

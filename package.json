@@ -13,7 +13,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "node scripts/test-formatters.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

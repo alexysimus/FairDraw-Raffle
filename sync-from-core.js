@@ -64,6 +64,8 @@ const PRESERVED_PUBLIC_FILES = new Set([
   'sync-from-core.js',
   '.env.example',
   path.join('src', 'lib', 'mockFirebase.ts'),
+  path.join('src', 'lib', 'formatters.ts'),
+  path.join('scripts', 'test-formatters.mjs'),
 ]);
 
 const copyDirectoryRecursive = (srcDir, destDir) => {
